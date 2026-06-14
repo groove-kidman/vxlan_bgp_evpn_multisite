@@ -1,0 +1,162 @@
+hostname LEAF-1
+
+hardware access-list tcam region vacl 0
+hardware access-list tcam region redirect 0
+hardware access-list tcam region span 0
+hardware access-list tcam region racl 768
+hardware access-list tcam region racl 256
+hardware access-list tcam region arp-ether 256 double-wide
+
+logging console 7
+
+cfs eth distribute
+feature ngmvpn
+nv overlay evpn
+feature ospf
+feature bgp
+feature pim
+feature interface-vlan
+feature vn-segment-vlan-based
+feature lacp
+feature dhcp
+feature lldp
+feature nv overlay
+no password strength-check
+
+configure terminal
+configure profile L2_SERVER
+  vlan 50
+    name L2_SERVER
+    vn-segment 10050
+  interface Vlan50
+    description SERVER_50_NW
+    vrf member SERVER
+    no ip redirects
+    ip address 172.50.0.1/24 tag 12345
+    mtu 9216
+    no shutdown
+    fabric forwarding mode anycast-gateway
+  interface nve1
+    member vni 10050
+      suppress-arp
+      mcast-group 239.239.239.50
+  evpn
+    vni 10050 l2
+      rd auto
+      route-target import auto
+      route-target export auto
+configure terminal
+configure profile L3_SERVER
+  vlan 1050
+    name SERVER
+    vn-segment 30050
+  interface Vlan1050
+    description SERVER
+    vrf member SERVER
+    ip forward
+    no ip redirects
+    mtu 9216
+    no shutdown
+  vrf context SERVER
+    description SERVER
+    vni 30050
+    rd auto
+    address-family ipv4 unicast
+      route-target both auto
+      route-target both auto evpn
+  route-map SERVER_permit_all permit 10
+  router bgp 65100
+    vrf SERVER
+      address-family ipv4 unicast
+        advertise l2vpn evpn
+redistribute hmm route-map SERVER_permit_all
+        redistribute direct route-map fabric-rmap-redist-subnet
+        maximum-paths 2
+        maximum-paths ibgp 2
+  interface nve1
+    member vni 30050 associate-vrf
+
+configure terminal
+ip http source-interface mgmt0 vrf management
+fabric forwarding anycast-gateway-mac 0200.ac1b.0101
+ip pim rp-address 172.16.253.1 group-list 239.239.239.0/24
+ip pim ssm range 232.0.0.0/8
+ip igmp snooping vxlan
+ip multicast multipath s-g-hash next-hop-based
+vlan 1,50,1050
+
+route-map fabric-rmap-redist-subnet permit 10
+  match tag 12345
+
+interface nve1
+  no shutdown
+  host-reachability protocol bgp
+  advertise virtual-rmac
+  source-interface loopback1
+
+interface Ethernet1/1
+  mtu 9216
+  switchport
+  switchport mode access
+  switchport access vlan 50
+  no shutdown
+
+interface Ethernet 1/53
+  description SPINE-1 Eth1/3
+  mtu 9216
+  ip address 172.16.10.18/30
+  ip ospf network point-to-point
+  ip router ospf UNDERLAY area 0.0.0.0
+  ip pim sparse-mode
+  no shutdown
+
+interface Ethernet1/54
+  description SPINE-2 Eth1/3
+  mtu 9216
+  ip address 172.16.10.22/30
+  ip ospf network point-to-point
+  ip router ospf UNDERLAY area 0.0.0.0
+  ip pim sparse-mode
+  no shutdown
+
+interface mgmt0
+  vrf member management
+  ip address 172.16.255.9/24
+  no shutdown
+
+interface loopback 0
+  description Global Routing Loopback
+  ip address 172.16.1.5/32
+  ip router ospf UNDERLAY area 0.0.0.0
+  ip pim sparse-mode
+
+interface loopback1
+  description VTEP loopback interface
+  ip address 172.16.3.5/32
+  ip router ospf UNDERLAY area 0.0.0.0
+  ip pim sparse-mode
+
+boot nxos bootflash:nxos64-cs.10.5.3.F.bin
+
+router ospf UNDERLAY
+  router-id 172.16.1.5
+
+router bgp 65100
+  router-id 172.16.1.5
+  address-family l2vpn evpn
+    advertise-pip
+  neighbor 172.16.1.3
+    remote-as 65100
+    update-source loopback0
+    address-family l2vpn evpn
+      send-community
+      send-community extended
+  neighbor 172.16.1.4
+    remote-as 65100
+    update-source loopback0
+    address-family l2vpn evpn
+      send-community
+      send-community extended
+
+apply profile L2_SERVER
+apply profile L3_SERVER
