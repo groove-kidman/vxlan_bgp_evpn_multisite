@@ -1,0 +1,102 @@
+hostname PE-1
+!
+!
+!
+mpls label protocol ldp
+mpls ldp router-id Loopback0
+!
+!
+!
+vrf definition SERVER
+ rd 172.16.0.5:50
+ !
+ address-family ipv4
+  route-target export 65000:50
+  route-target import 65000:50
+ exit-address-family
+!
+!
+!
+license boot level network-premier addon dna-premier
+!
+!
+!
+interface Loopback0
+  description Global Management Loopback0
+  ip address 172.16.0.5 255.255.255.255
+  no shutdown
+!
+interface Gi1
+  description BGW-1 Eth1/54
+  mtu 9216
+  no shutdown
+!
+interface Gi1.50
+  encapsulation dot1q 50
+  vrf forwarding SERVER 
+  ip address 172.16.2.2 255.255.255.252
+  no shutdown
+!
+interface Gi2
+  description BGW-2 Eth1/54
+  mtu 9216
+  no shutdown
+!
+interface Gi2.50
+  encapsulation dot1q 50
+  vrf forwarding SERVER 
+  ip address 172.16.2.10 255.255.255.252
+  no shutdown
+!
+!
+router ospf 1
+  router-id 172.16.0.5
+  auto-cost reference-bandwidth 1000000
+  !redistribute bgp 65000 route-map rs-GLOBAL-redistribute-list
+  passive-interface default
+  network 172.16.0.0 0.0.255.255 area 0
+  distribute-list prefix RS_GLOBAL out
+  distribute-list prefix RS_GLOBAL in
+!
+!
+router bgp 65000
+ bgp router-id 172.16.0.5
+ bgp log-neighbor-changes
+ no bgp default ipv4-unicast
+ neighbor 172.16.2.1 remote-as 65100
+ neighbor 172.16.2.1 description BGW-1
+ neighbor 172.16.2.9 remote-as 65100
+ neighbor 172.16.2.9 description BGW-2
+ !
+ address-family vpnv4
+  bgp scan-time 5
+  neighbor 172.16.0.1 activate
+  neighbor 172.16.0.1 send-community extended
+  neighbor 172.16.0.2 activate
+  neighbor 172.16.0.2 send-community extended
+  maximum-paths 2
+ exit-address-family
+ !
+ address-family ipv4 vrf SERVER
+  neighbor 172.16.2.1 remote-as 65100
+  neighbor 172.16.2.1 description BGW-1
+  neighbor 172.16.2.1 activate
+  neighbor 172.16.2.9 remote-as 65100
+  neighbor 172.16.2.9 description BGW-2
+  neighbor 172.16.2.9 activate
+  maximum-paths 4
+  maximum-paths ibgp 2
+ exit-address-family
+!
+!  
+!
+ip prefix-list RS_GLOBAL seq 5 permit 172.16.0.0/16 le 32
+ip prefix-list RS_GLOBAL seq 70 permit 0.0.0.0/0 le 32
+!
+ip prefix-list rs-GLOBAL-redistribute-list seq 5 permit 172.16.255.0/26
+ip prefix-list rs-GLOBAL-redistribute-list seq 10 permit 172.16.255.64/26
+!
+!
+route-map rs-GLOBAL-redistribute-list permit 10 
+ match ip address prefix-list rs-GLOBAL-redistribute-list
+!
